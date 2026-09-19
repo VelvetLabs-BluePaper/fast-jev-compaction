@@ -10,6 +10,11 @@
       "description": "TypeSafe API key. Leave unset to use TYPESAFE_API_KEY.",
       "sensitive": true
     },
+    "baseUrl": {
+      "type": "string",
+      "title": "Jev endpoint (gateway)",
+      "description": "System One-compatible endpoint. VelvetLabs: the Jev gateway (http://100.118.104.77:8092/v1/systemone); the key then stays in the gateway. Leave unset to use FAST_JEV_BASE_URL or TypeSafe directly."
+    },
     "keepThreshold": {
       "type": "number",
       "title": "Keep threshold",
