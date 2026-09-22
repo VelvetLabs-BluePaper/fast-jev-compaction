@@ -3,6 +3,7 @@ import {
   compactSession,
   decisionLog,
   decisionLogLines,
+  jevAsker,
   resolveHookConfig,
   summarize,
   toSessionMessages,
@@ -146,4 +147,19 @@ describe('compactSession', () => {
       compactSession(transcript(), { ...config, apiKey: 'k' }, async () => ({ status: 500, ok: false, text: 'x' })),
     ).rejects.toThrow(/500/);
   });
+});
+
+describe('jevAsker fail-open', () => {
+  it('rejects with "Jev ask timeout" when the transport never resolves', async () => {
+    const neverResolves = new Promise<never>(() => {});
+    const fetchFn = (): Promise<{ status: number; ok: boolean; text: string }> => Promise.resolve(neverResolves);
+    const asker = jevAsker(fetchFn, 'test-key', 'test-model');
+    const start = Date.now();
+    await expect(
+      asker.ask('minimal state', { t1: { type: 'noul', instructions: 'Should this call be kept?' } }),
+    ).rejects.toThrow('Jev ask timeout');
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThan(3500);
+    expect(elapsed).toBeLessThan(6000);
+  }, 10000);
 });
