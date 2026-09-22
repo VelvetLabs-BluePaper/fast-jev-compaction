@@ -91,6 +91,9 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
   return config;
 }
 
+// Tope por llamada a Jev para no colgar el turno (4s).
+const JEV_ASK_TIMEOUT_MS = 4_000;
+
 /** A `JevAsker` over the engine's `$.http.fetch`. */
 export function jevAsker(
   fetchFn: HookFetch,
@@ -101,12 +104,24 @@ export function jevAsker(
   return {
     async ask(state, questions) {
       const request = buildJevRequest({ apiKey, model, baseUrl }, state, questions);
-      const response = await fetchFn(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
+      // Si Jev tarda más del tope, el timeout hace fail-open y el hook cae a su fallback.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Jev ask timeout after ${JEV_ASK_TIMEOUT_MS} ms`)), JEV_ASK_TIMEOUT_MS);
       });
-      return parseJevResponse(response.status, response.ok, response.text);
+      try {
+        const response = await Promise.race([
+          fetchFn(request.url, {
+            method: request.method,
+            headers: request.headers,
+            body: request.body,
+          }),
+          timeout,
+        ]);
+        return parseJevResponse(response.status, response.ok, response.text);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
     },
   };
 }
