@@ -9,6 +9,13 @@ import type {
 } from 'claude-code';
 
 import { compact, reductionRatio, resolveOptions } from '../src/compact.js';
+import {
+  callKey,
+  isExcluded,
+  isPrunableTool,
+  PRUNE_THRESHOLD,
+  pruneText,
+} from '../src/prune.js';
 import { buildJevRequest, DEFAULT_MODEL, parseJevResponse } from '../src/request.js';
 import type {
   CompactOptions,
@@ -337,6 +344,59 @@ export const register: Register = (on: On, options: PluginOptions) => {
         `fallback to built-in summary (${error instanceof Error ? error.message : String(error)})`,
       );
       return next(event);
+    }
+  });
+
+  const pruned = new Set<string>();
+
+  on('tool.call', async ($, event, next) => {
+    const r = await next(event);
+    try {
+      const e = event as unknown as Record<string, unknown> & { tool: string; tool_use_id?: string };
+      if (!isPrunableTool(e.tool)) return r;
+      const res = r as unknown as { result?: any; text?: string; isError?: boolean };
+      if (res.isError || res.result?.isError) return r;
+      const isBash = e.tool === 'Bash';
+      const out = res.result as any;
+      const text: string | undefined = isBash
+        ? typeof out?.stdout === 'string' ? out.stdout : undefined
+        : Array.isArray(out?.content) && out.content.length === 1 && out.content[0]?.type === 'text'
+          ? out.content[0].text
+          : undefined;
+      if (typeof text !== 'string' || text.length <= PRUNE_THRESHOLD) return r;
+      const cwd = await $.session.cwd();
+      const projectDir = await $.env.get('CLAUDE_PROJECT_DIR');
+      if (isExcluded(cwd, projectDir, event)) return r;
+      const { tool_use_id: _id, ...sameInput } = e;
+      const key = callKey(e.tool, sameInput);
+      if (pruned.has(key)) return r; // loop-guard: repeated after a prune -> enters whole
+      const base = (await $.env.get('CLAUDE_PLUGIN_DATA')) ?? `${(await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '.'}/.claude/spill`;
+      const sessionId = await $.session.id();
+      const path = `${base}/spill/${sessionId}/${e.tool_use_id ?? String(Date.now())}.txt`;
+      const withUrl = { ...configured, baseUrl: await getBaseUrl($, configured) };
+      const apiKey = await getApiKey($, withUrl);
+      const messages = await $.session.messages();
+      const lastText = (role: string) => [...messages].reverse().find((m) => m.role === role && m.text)?.text ?? '';
+      const asker = apiKey
+        ? jevAsker(async (url, init) => {
+            const response = await $.http.fetch(url, init);
+            return { status: response.status, ok: response.ok, text: response.text };
+          }, apiKey, configured.model, withUrl.baseUrl)
+        : undefined;
+      const replacement = await pruneText(
+        text,
+        path,
+        { userPrompt: lastText('user'), assistantText: lastText('assistant'), tool: e.tool, input: event },
+        asker,
+        (p, t) => $.fs.write(p, t),
+      );
+      pruned.add(key);
+      const newResult = isBash
+        ? { ...out, stdout: replacement, stderr: typeof out.stderr === 'string' ? out.stderr.slice(0, 1000) : out.stderr }
+        : { ...out, content: [{ type: 'text', text: replacement }] };
+      return { ...res, result: newResult, text: replacement } as typeof r;
+    } catch {
+      return r; // fail-open: never break the tool call
     }
   });
 
