@@ -98,6 +98,15 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
   return config;
 }
 
+/** Cabeceras de identidad hacia el gateway; si la cwd falla, solo el origen. */
+async function jevHeaders($: { session: { cwd(): Promise<string> } }): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'x-jev-origen': 'org' };
+  try {
+    headers['x-jev-cwd'] = await $.session.cwd();
+  } catch {}
+  return headers;
+}
+
 // Tope por llamada a Jev para no colgar el turno (4s).
 const JEV_ASK_TIMEOUT_MS = 4_000;
 
@@ -107,10 +116,11 @@ export function jevAsker(
   apiKey: string,
   model: string,
   baseUrl?: string,
+  extraHeaders?: Record<string, string>,
 ): JevAsker {
   return {
     async ask(state, questions) {
-      const request = buildJevRequest({ apiKey, model, baseUrl }, state, questions);
+      const request = buildJevRequest({ apiKey, model, baseUrl, headers: extraHeaders }, state, questions);
       // Si Jev tarda más del tope, el timeout hace fail-open y el hook cae a su fallback.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
@@ -197,11 +207,12 @@ export async function compactSession(
   messages: readonly SessionMessage[],
   config: HookConfig,
   fetchFn: HookFetch,
+  extraHeaders?: Record<string, string>,
 ): Promise<SessionCompaction> {
   if (!config.apiKey) throw new Error('TYPESAFE_API_KEY is not configured');
   const result = await compact(
     messages,
-    jevAsker(fetchFn, config.apiKey, config.model, config.baseUrl),
+    jevAsker(fetchFn, config.apiKey, config.model, config.baseUrl, extraHeaders),
     config,
   );
   return { result, messages: toSessionMessages(messages, result.messages) };
@@ -324,7 +335,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
       const { result, messages } = await compactSession(event.messages, config, async (url, init) => {
         const response = await $.http.fetch(url, init);
         return { status: response.status, ok: response.ok, text: response.text };
-      });
+      }, await jevHeaders($));
       for (const line of decisionLogLines(result)) $.ui.log(line);
       if (reductionRatio(result) < config.minReductionRatio) {
         notify(
@@ -381,7 +392,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
         ? jevAsker(async (url, init) => {
             const response = await $.http.fetch(url, init);
             return { status: response.status, ok: response.ok, text: response.text };
-          }, apiKey, configured.model, withUrl.baseUrl)
+          }, apiKey, configured.model, withUrl.baseUrl, await jevHeaders($))
         : undefined;
       const replacement = await pruneText(
         text,

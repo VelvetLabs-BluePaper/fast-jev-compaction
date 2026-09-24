@@ -16,6 +16,7 @@ export function buildJevRequest(
     apiKey: string;
     model?: string;
     baseUrl?: string;
+    headers?: Record<string, string>;
   },
   state: JevState,
   questions: JevQuestions,
@@ -26,6 +27,7 @@ export function buildJevRequest(
     headers: {
       authorization: `Bearer ${params.apiKey}`,
       'content-type': 'application/json',
+      ...(params.headers ?? {}),
     },
     body: JSON.stringify({
       model: params.model ?? DEFAULT_MODEL,

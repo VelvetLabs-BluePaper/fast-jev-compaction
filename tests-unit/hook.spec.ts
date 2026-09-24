@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   compactSession,
+  jevAsker,
+  register,
   decisionLog,
   decisionLogLines,
   resolveHookConfig,
   summarize,
   toSessionMessages,
 } from '../hooks/fast-jev.ts';
-import { applyDecisions, collectToolCalls, decideCall, type Message } from '../src/index.js';
+import { buildJevRequest, applyDecisions, collectToolCalls, decideCall, type Message } from '../src/index.js';
 
 type SessionMessage = Message & { handle?: string };
 
@@ -145,5 +147,56 @@ describe('compactSession', () => {
     await expect(
       compactSession(transcript(), { ...config, apiKey: 'k' }, async () => ({ status: 500, ok: false, text: 'x' })),
     ).rejects.toThrow(/500/);
+  });
+});
+
+describe('x-jev-cwd', () => {
+  const cwd = 'C:/work/sesion';
+
+  it('x-jev-cwd: buildJevRequest con headers incluye x-jev-cwd', () => {
+    const request = buildJevRequest({ apiKey: 'k', headers: { 'x-jev-cwd': cwd, 'x-jev-origen': 'org' } }, {}, {});
+    expect(request.headers['x-jev-cwd']).toBe(cwd);
+    expect(request.headers['x-jev-origen']).toBe('org');
+    expect(request.headers.authorization).toBe('Bearer k');
+  });
+
+  it('x-jev-cwd: jevAsker con extraHeaders manda la cabecera al fetch', async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    const asker = jevAsker(
+      async (_url, init) => {
+        seen.push(init?.headers);
+        return { status: 200, ok: true, text: JSON.stringify({ answers: {} }) };
+      },
+      'k',
+      'jev-latest',
+      undefined,
+      { 'x-jev-cwd': cwd, 'x-jev-origen': 'org' },
+    );
+    await asker.ask({} as never, {} as never);
+    expect(seen[0]?.['x-jev-cwd']).toBe(cwd);
+    expect(seen[0]?.['x-jev-origen']).toBe('org');
+  });
+
+  it('x-jev-cwd: el hook session.compact manda x-jev-cwd de la sesion', async () => {
+    const handlers: Record<string, (...a: any[]) => Promise<any>> = {};
+    register(((name: string, fn: any) => { handlers[name] = fn; }) as never, { preserveRecentMessages: 1 } as never);
+    const headers: Array<Record<string, string> | undefined> = [];
+    const $ = {
+      env: { get: async (n: string) => (n === 'TYPESAFE_API_KEY' ? 'k' : undefined) },
+      settings: { read: async () => ({}) },
+      session: { cwd: async () => cwd },
+      ui: { log: (t: string) => void t, toast: () => {} },
+      http: {
+        fetch: async (_url: string, init?: { headers?: Record<string, string>; body?: string }) => {
+          headers.push(init?.headers);
+          const { questions } = JSON.parse(init?.body ?? '{}') as { questions: Record<string, unknown> };
+          const answers = Object.fromEntries(Object.keys(questions).map((k) => [k, { type: 'noul', noul: 0.1 }]));
+          return { status: 200, ok: true, text: JSON.stringify({ answers }) };
+        },
+      },
+    };
+    await handlers['session.compact']!($, { messages: transcript() }, async () => ({}));
+    expect(headers.length).toBeGreaterThan(0);
+    expect(headers.every((h) => h?.['x-jev-cwd'] === cwd && h?.['x-jev-origen'] === 'org')).toBe(true);
   });
 });
