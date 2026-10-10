@@ -411,6 +411,10 @@ export const register: Register = (on: On, options: PluginOptions) => {
     }
   });
 
+  // Compactación automática retirada por defecto (L-0402): los 400k nativos la cubren.
+  // Interruptor para volver: opción compactar: true.
+  if (options.compactar !== true) return;
+
   on('turn.complete', async ($, event: TurnCompleteInput, next) => {
     if (compacting) return next(event);
     try {
