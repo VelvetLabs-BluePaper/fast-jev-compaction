@@ -70,9 +70,9 @@ fitted into the state budget, or the estimated reduction is below
 built-in compaction. The outcome is shown as a toast and logged with the
 reduction, per-reason counts, state size and request count; a per-call
 `decisions:` line with both probabilities is logged for diagnosis. The
-`turn.complete` hook requests
-compaction when `context.percent` reaches `compactAtPercent`, with an
-in-flight guard.
+`turn.complete` hook is **off by default** (L-0402; native 400k covers it). Set
+`compactar: true` to bring it back: it then requests compaction when
+`context.percent` reaches `compactAtPercent`, with an in-flight guard.
 
 ## Scope and caveat
 
