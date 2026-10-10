@@ -57,6 +57,12 @@
       "description": "Characters of a tool result kept when Jev decides its full output is no longer needed; 0 keeps only the note.",
       "default": 300
     },
+    "compactar": {
+      "type": "boolean",
+      "title": "Automatic compaction",
+      "description": "When true, turn.complete requests Jev-guided compaction at compactAtPercent. Off by default: only the tool-result pruning (tool.call) runs.",
+      "default": false
+    },
     "model": {
       "type": "string",
       "title": "Jev model",

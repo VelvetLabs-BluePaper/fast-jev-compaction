@@ -62,3 +62,16 @@ describe('compactación automática apagada', () => {
     expect(calls.compact).toBe(1);
   });
 });
+
+describe('userConfig del plugin', () => {
+  it('plugin.json declara compactar como booleano apagado por defecto', async () => {
+    const { readFileSync } = await import('node:fs');
+    const manifest = JSON.parse(readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
+    const c = manifest.userConfig.compactar;
+    expect(c).toBeDefined();
+    expect(c.type).toBe('boolean');
+    expect(c.default).toBe(false);
+    expect(typeof c.title).toBe('string');
+    expect(typeof c.description).toBe('string');
+  });
+});
